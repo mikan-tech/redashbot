@@ -16,7 +16,8 @@ export function mention(): Middleware<SlackEventMiddlewareArgs<'message'>> {
       )
     }
 
-    if (!message.text) {
+    // textを持たないmessage subtype（message_changed, message_deleted等）はスキップ
+    if (!('text' in message) || !message.text) {
       return
     }
 

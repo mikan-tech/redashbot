@@ -27,8 +27,8 @@ export const handleRecordChart: Handler = ({ redash, capture }) => {
     const filename = `${query.name}-${visualization?.name}-query-${queryId}-visualization-${visualizationId}.png`
 
     const file = await capture(embedUrl)
-    client.files.upload({
-      channels: message.channel,
+    await client.files.uploadV2({
+      channel_id: message.channel,
       filename,
       file,
     })
@@ -43,8 +43,8 @@ export const handleRecordDashboard: Handler = ({ redash, capture }) => {
     const dashboard = await redash.getDashboard(dashboardId)
     const filename = `${dashboard.name}-dashboard-${dashboardId}.png`
     const file = await capture(dashboard.public_url)
-    client.files.upload({
-      channels: message.channel,
+    await client.files.uploadV2({
+      channel_id: message.channel,
       filename,
       file,
     })

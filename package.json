@@ -8,29 +8,19 @@
     "build": "tsc"
   },
   "engines": {
-    "node": ">= 10.0"
+    "node": ">= 18.0"
   },
   "license": "MIT",
   "dependencies": {
-    "@slack/bolt": "^2.1.1",
-    "await-sleep": "0.0.1",
-    "aws-serverless-express": "^3.3.8",
-    "axios": "^0.19.2",
-    "playwright": "^1.17.1",
-    "playwright-aws-lambda": "^0.6.0",
-    "playwright-core": "^1.3.0",
-    "table-layout": "^0.4.3",
-    "ts-node": "^9.0.0",
-    "typescript": "^4.0.2"
+    "@slack/bolt": "^4.6.0",
+    "await-sleep": "^0.0.1",
+    "axios": "^1.13.2",
+    "playwright": "1.46.1",
+    "table-layout": "^4.1.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "devDependencies": {
-    "@types/express-serve-static-core": "^4.17.9",
-    "@types/node": "^14.6.2",
-    "@types/terser-webpack-plugin": "^4.1.0",
-    "serverless": "^1.80.0",
-    "serverless-offline": "^6.7.0",
-    "serverless-plugin-optimize": "^4.1.4-rc.1",
-    "serverless-plugin-typescript": "^1.1.9",
-    "serverless-prune-plugin": "^1.4.3"
+    "@types/node": "^22.15.0"
   }
 }

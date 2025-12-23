@@ -1,9 +1,10 @@
 FROM mcr.microsoft.com/playwright:focal
 
-COPY . /redashbot
+COPY package*.json /redashbot/
 WORKDIR /redashbot
+RUN npm ci --omit=dev
 
-RUN npm i
+COPY . /redashbot
 
 EXPOSE 3000
 CMD ["npm", "start"]
