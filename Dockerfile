@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:focal
+FROM mcr.microsoft.com/playwright:v1.46.1-focal
 
 COPY package*.json /redashbot/
 WORKDIR /redashbot
