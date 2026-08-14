@@ -5,7 +5,8 @@
   "main": ".build/bot.js",
   "scripts": {
     "start": "ts-node bot.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "SLEEP_TIME=0 node --require ts-node/register --test test/capture.test.ts"
   },
   "engines": {
     "node": ">= 18.0"
