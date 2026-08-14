@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import playwright from 'playwright'
+import type { Page } from 'playwright'
 import { capture } from '../src/capture'
 
 type MockPage = {
-  setViewportSize: () => void
-  goto: () => Promise<void>
-  waitForResponse: () => Promise<void>
-  screenshot: () => Promise<Buffer>
+  setViewportSize: (...args: Parameters<Page['setViewportSize']>) => Promise<void>
+  goto: (...args: Parameters<Page['goto']>) => Promise<void>
+  waitForResponse: (...args: Parameters<Page['waitForResponse']>) => Promise<void>
+  screenshot: (...args: Parameters<Page['screenshot']>) => Promise<Buffer>
 }
 
 type MockBrowser = {
@@ -35,7 +36,7 @@ afterEach(restoreLaunch)
 
 function createPage(overrides: Partial<MockPage> = {}): MockPage {
   return {
-    setViewportSize: () => undefined,
+    setViewportSize: async () => undefined,
     goto: async () => undefined,
     waitForResponse: async () => undefined,
     screenshot: async () => Buffer.from('screenshot'),

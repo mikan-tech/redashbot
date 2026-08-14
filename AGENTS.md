@@ -63,7 +63,7 @@ src/
 
 - **プロジェクト**: mikan-develop
 - **インスタンス**: redashbot（asia-northeast1-b）
-- **スペック**: e2-micro（2 vCPU, 1GB RAM）
+- **スペック**: e2-small（2 vCPU, 2GB RAM）
 - **デプロイ先**: `/home/redashbot/`
 - **ポートマッピング**: 80 → 3000
 
@@ -87,7 +87,7 @@ gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --
 
 ### Playwright Dockerイメージの制約
 
-GCEインスタンスがe2-micro（1GB RAM）のため、新しいPlaywright Dockerイメージでは起動時にNode.jsのスレッド作成に失敗する:
+以前のGCEインスタンスがe2-micro（1GB RAM）だったため、新しいPlaywright Dockerイメージでは起動時にNode.jsのスレッド作成に失敗する:
 
 ```
 pthread_create: Resource temporarily unavailable
