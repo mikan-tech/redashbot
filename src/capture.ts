@@ -1,10 +1,20 @@
 import playwright from 'playwright'
 import sleep from 'await-sleep'
 import { config } from './config'
+import { createSemaphore } from './semaphore'
 
 const engine = playwright[config.browser]
 
+// キャプチャの同時実行数を制限する
+// Slackのリマインダーで複数のクエリが一斉に投稿されるとハンドラが並行して動くため、
+// ここで絞らないとChromiumが同時に何個も起動してPID上限に到達する
+const runWithLimit = createSemaphore(config.captureConcurrency)
+
 export async function capture(url: string): Promise<Buffer> {
+  return runWithLimit(() => captureWithBrowser(url))
+}
+
+async function captureWithBrowser(url: string): Promise<Buffer> {
   const browser = await engine.launch({
     args: ['--disable-dev-shm-usage', '--no-sandbox'],
   })

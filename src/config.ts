@@ -12,6 +12,16 @@ export type Config = {
   hosts: Hosts
   browser: Engine
   sleep: number
+  captureConcurrency: number
+}
+
+const captureConcurrency =
+  process.env.CAPTURE_CONCURRENCY === undefined
+    ? 2
+    : Number(process.env.CAPTURE_CONCURRENCY)
+
+if (!Number.isInteger(captureConcurrency) || captureConcurrency < 1) {
+  throw new Error('CAPTURE_CONCURRENCY は1以上の整数で指定してください')
 }
 
 let hosts: Hosts
@@ -51,5 +61,6 @@ export const config: Config = {
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
   browser: (process.env.BROWSER || 'chromium') as Engine,
   sleep: process.env.SLEEP_TIME ? parseFloat(process.env.SLEEP_TIME) : 1000,
+  captureConcurrency,
   hosts,
 }
