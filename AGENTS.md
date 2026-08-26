@@ -29,6 +29,7 @@ docker run -p 3000:3000 --env-file .env redashbot
 - `SLACK_SIGNING_SECRET` - Slack Signing Secret
 - `REDASH_HOST` / `REDASH_API_KEY` - 単一Redashサーバー用
 - `REDASH_HOSTS_AND_API_KEYS` - 複数Redashサーバー用 (形式: `host1;token1,host2;token2`)
+- `CAPTURE_CONCURRENCY` - キャプチャの同時実行数 (省略時は2)。詳細は「キャプチャの同時実行数」を参照
 
 ## Architecture
 
@@ -39,7 +40,8 @@ src/
   config.ts            # 環境変数から設定読み込み (hosts, browser, sleep等)
   handlers.ts          # メッセージハンドラ (chart/dashboard/table)
   middleware.ts        # カスタムmention()ミドルウェア (reminder対応)
-  capture.ts           # Playwrightによるスクリーンショット取得
+  capture.ts           # Playwrightによるスクリーンショット取得 (同時実行数を制限)
+  semaphore.ts         # 同時実行数を制限するセマフォ
   redash.ts            # Redash API クライアント (getQuery, getDashboard, getQueryResult)
 ```
 
@@ -83,7 +85,47 @@ gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --
 gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "sudo docker logs redashbot"
 ```
 
+### リポジトリ管理外のファイル
+
+`docker-compose.yml` と `.env` はこのリポジトリに存在せず、GCEホスト (`/home/redashbot/`) にのみ置かれている。`pids_limit` や `init: true` などの設定を変更する場合はホスト側を直接編集し、事前にバックアップを取ること。
+
+**`docker-compose config` は実行しないこと** — `.env` のSlack Bot TokenとRedash API Keyが平文で標準出力に出る。設定の反映確認は個別フィールドで行う:
+
+```bash
+sudo docker inspect -f '{{.HostConfig.Init}} {{.HostConfig.PidsLimit}}' redashbot
+```
+
 ## 重要な制約事項
+
+### ゾンビプロセスの回収（`init: true` 必須）
+
+コンテナのPID 1が `npm start` だと、終了したChromiumの子プロセスが `<defunct>`（ゾンビ）としてPIDテーブルに残り続ける。npmは子プロセスを `wait()` しないため誰も回収しない。ゾンビは1件ずつPIDを消費し自然には減らないので、`pids_limit` に到達すると新規プロセスを起動できず、コンテナが `Up` のまま応答不能になる。
+
+**`docker-compose.yml` に `init: true` を必ず入れる**（tiniがPID 1になりゾンビを回収する）:
+
+```yaml
+services:
+  redashbot:
+    init: true
+    pids_limit: 200
+```
+
+適用されていればPID 1が `init` になる:
+
+```
+    1     0 Ss   init
+    6     1 Sl   npm start
+```
+
+`capture()` の `try/finally` による `browser.close()` ではこの問題は直らない。`close()` は「プロセスを終了させる」だけで、終了後のゾンビを回収するのは親プロセスの責務であり、別レイヤの問題である。実際に `close()` を全経路で呼ぶ修正を入れた後も再発した。
+
+診断は `docker exec redashbot ps -eo pid,ppid,stat,comm --forest` で `Z`(defunct) の有無とPID 1の正体を見る。CPU・メモリは当てにならない（PIDが枯渇していてもCPU 0%・メモリに余裕があることがある）。
+
+### キャプチャの同時実行数
+
+Slackのリマインダーで複数のクエリが一斉に投稿されると、ハンドラが並行して動きChromiumが同時に何個も起動する。Chromiumは1インスタンスあたり多数のプロセス・スレッドを生成するため、瞬間的にPID上限へ到達し `pthread_create: Resource temporarily unavailable` や `spawn ... EAGAIN` でクラッシュする。
+
+`src/semaphore.ts` で同時実行数を制限しており、既定値は2。`CAPTURE_CONCURRENCY` で変更できるが、上げる場合は `pids_limit` とあわせて検討すること。
 
 ### Playwright Dockerイメージの制約
 
