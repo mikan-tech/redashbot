@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createSemaphore } from '../src/semaphore'
 
-// 外部から解決できるPromiseを作る。実行中のタスクを任意の順序で終わらせるために使う
+// 外部から解決できるPromiseを作り実行中のタスクを任意の順序で終わらせるために使う
 function createDeferred() {
   let resolve!: () => void
   const promise = new Promise<void>((r) => {

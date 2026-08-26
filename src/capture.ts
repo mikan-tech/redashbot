@@ -5,7 +5,7 @@ import { createSemaphore } from './semaphore'
 
 const engine = playwright[config.browser]
 
-// キャプチャの同時実行数を制限する。
+// キャプチャの同時実行数を制限する
 // Slackのリマインダーで複数のクエリが一斉に投稿されるとハンドラが並行して動くため、
 // ここで絞らないとChromiumが同時に何個も起動してPID上限に到達する
 const runWithLimit = createSemaphore(config.captureConcurrency)
