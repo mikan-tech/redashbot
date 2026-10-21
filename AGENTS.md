@@ -87,12 +87,12 @@ gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --
 
 ### リポジトリ管理外のファイル
 
-`docker-compose.yml` と `.env` はこのリポジトリに存在せず、GCEホスト (`/home/redashbot/`) にのみ置かれている。`pids_limit` や `init: true` などの設定を変更する場合はホスト側を直接編集し、事前にバックアップを取ること。
+`docker-compose.yml` と `.env` はこのリポジトリに存在せず、GCEホスト (`/home/redashbot/`) にのみ置かれている。`pids_limit` や `init: true`、`security_opt` などの設定を変更する場合はホスト側を直接編集し、事前にバックアップを取ること。
 
 **`docker-compose config` は実行しないこと** — `.env` のSlack Bot TokenとRedash API Keyが平文で標準出力に出る。設定の反映確認は個別フィールドで行う:
 
 ```bash
-sudo docker inspect -f '{{.HostConfig.Init}} {{.HostConfig.PidsLimit}}' redashbot
+sudo docker inspect -f '{{.HostConfig.Init}} {{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}}' redashbot
 ```
 
 ## 重要な制約事項
@@ -108,6 +108,8 @@ services:
   redashbot:
     init: true
     pids_limit: 200
+    security_opt:
+      - seccomp=unconfined  # 「Playwright Dockerイメージの制約」を参照
 ```
 
 適用されていればPID 1が `init` になる:
@@ -127,29 +129,44 @@ Slackのリマインダーで複数のクエリが一斉に投稿されると、
 
 `src/semaphore.ts` で同時実行数を制限しており、既定値は2。`CAPTURE_CONCURRENCY` で変更できるが、上げる場合は `pids_limit` とあわせて検討すること。
 
-### Playwright Dockerイメージの制約
+### Playwright Dockerイメージの制約（`seccomp=unconfined` 必須）
 
-以前のGCEインスタンスがe2-micro（1GB RAM）だったため、新しいPlaywright Dockerイメージでは起動時にNode.jsのスレッド作成に失敗する:
+GCEホストは Debian 10 (buster) + Docker Engine 18.09.1 と古い。glibc 2.34以上のイメージ（Ubuntu jammy / noble、Debian bookworm 系）を既定のseccompで起動すると、Node.jsが起動時のスレッド作成で落ちる:
 
 ```
 pthread_create: Resource temporarily unavailable
-uv_thread_create assertion failure
+Assertion `(0) == (uv_thread_create(t.get(), start_thread, this))' failed.
 ```
 
-**対応**: バージョンを固定したfocalイメージ（例: `mcr.microsoft.com/playwright:v1.46.1-focal`）を使用すること。以下のイメージは動作しない:
-- `playwright:v1.57.0-noble`
-- `playwright:v1.49.1-jammy`
-- `playwright:v1.40.0-jammy`
-- `playwright:focal`（タグなし - 最新版に更新されるため不安定）
+原因は、glibc 2.34以降がスレッド作成に使う `clone3` を、古いDocker（20.10.10未満）の既定seccompプロファイルが EPERM で拒否すること。glibcは EPERM のとき `clone` にフォールバックしないため失敗する。以前は「e2-micro（1GB RAM）だったため」と書いていたが誤りで、メモリやPlaywrightのバージョンは関係ない（2026-10-22 にホスト上で検証済み）。
+
+| イメージ | glibc | 既定seccomp | `seccomp=unconfined` |
+|---|---|---|---|
+| `playwright:v1.46.1-focal` | 2.31 | 起動する | 起動する |
+| `playwright:v1.40.0-jammy` | 2.35 | 落ちる | 起動する |
+| `node:24-slim` | 2.36 | 落ちる | 起動する |
+
+**対応**: `docker-compose.yml` に `security_opt: [seccomp=unconfined]` を入れる。ホストのDockerを20.10.10以上へ更新するか、Cloud Runへ移行すれば不要になる（BACK-4947）。
+
+切り分けるときは、同じイメージを既定と `--security-opt seccomp=unconfined` の両方で起動して比べる:
+
+```bash
+sudo docker run --rm IMAGE node -e 'new (require("worker_threads").Worker)("process.exit(0)",{eval:true}).on("exit",()=>console.log("OK",process.version))'
+sudo docker run --rm --security-opt seccomp=unconfined IMAGE node -e '...同上...'
+```
+
+Playwrightのfocalイメージはv1.48が最後で、中身はNode 20（EOL）だけ。Node 22/24にするには jammy / noble を使うしかない。
 
 ### Playwrightバージョンの固定
 
 npmパッケージのPlaywrightバージョンは、Dockerイメージに含まれるブラウザバージョンと**完全に一致**させる必要がある:
 
-- **Dockerイメージ**: `playwright:v1.46.1-focal` → Playwright 1.46.1のブラウザ（chromium-1124等）を内蔵
-- **npmパッケージ**: `"playwright": "1.46.1"`（`^`なしで固定必須）
+- **Dockerイメージ**: `playwright:v1.64.1-noble` → Playwright 1.64.1のブラウザとNode.js 24を内蔵
+- **npmパッケージ**: `"playwright": "1.64.1"`（`^`なしで固定必須）
 
-**重要**: `playwright:focal`タグは最新バージョンに更新されるため使用禁止。必ずバージョン付きタグ（`v1.46.1-focal`等）を使用すること。
+**重要**: `playwright:noble` のようなバージョンなしのタグは最新版に更新されるため使用禁止。必ずバージョン付きタグ（`v1.64.1-noble`等）を使用すること。
+
+イメージ内のNode.jsはイメージ作成時点のパッチ版で止まっている。Node.jsのセキュリティリリースが出たら、Dockerfileの `apt-get install --only-upgrade nodejs` が最新パッチへ上げるので、`docker-compose build --no-cache` で再ビルドすればよい。
 
 バージョン不整合時のエラー例:
 
