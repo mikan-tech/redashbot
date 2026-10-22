@@ -69,14 +69,22 @@ sudo vi /home/redashbot/docker-compose.yml
 
 `docker-compose config` は実行しない（`.env` のトークンが標準出力に出る）。
 
-### 5. ビルドして入れ替える
+### 5. 手元でビルドしたイメージを送って入れ替える
 
-ビルドに失敗しても今のコンテナは止まらないので、先にビルドしてから入れ替える。
+ホスト上の `docker-compose build` は失敗する。ビルド中の `RUN` も既定の seccomp で動くため、noble イメージでは `apt-get update` が GPG 検証と後処理スクリプトで落ちる（2026-10-22 に実際に失敗した）。そこで手元の Mac で linux/amd64 のイメージをビルドして送る。送っている間も今のコンテナは止まらない。
 
 ```bash
+# 手元の Mac で（コミット済みの内容だけを使うため git archive を通す）
+cd ~/Development/mikan/redashbot
+git archive --format=tar HEAD | docker build --platform linux/amd64 -t redashbot:node24-amd64 -
+docker save redashbot:node24-amd64 | gzip -1 | gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "gunzip | sudo docker load"
+```
+
+```bash
+# GCE ホストで
 cd /home/redashbot
-sudo docker-compose build --no-cache
-sudo docker-compose up -d                  # 新しいイメージでコンテナを作り直す
+sudo docker tag redashbot:node24-amd64 redashbot_redashbot:latest
+sudo docker-compose up -d --no-build       # 新しいイメージでコンテナを作り直す（数秒止まる）
 ```
 
 ### 6. 反映を確認する
@@ -95,9 +103,11 @@ sudo docker exec redashbot ps -eo pid,ppid,stat,comm --forest | head   # PID 1 �
 ### 7. 後片付け（1〜2日問題なく動いてから）
 
 ```bash
-sudo docker rmi redashbot_redashbot:node20-backup mcr.microsoft.com/playwright:v1.46.1-focal
+sudo docker rmi redashbot_redashbot:node20-backup mcr.microsoft.com/playwright:v1.46.1-focal redashbot:node24-amd64
 sudo docker image prune
 ```
+
+`playwright:v1.64.1-noble` は、手順5でホスト上のビルドを試したときに pull したもの。新しいイメージとレイヤーを共有しているので、消しても空きはほとんど増えない。
 
 ## ロールバック
 
@@ -114,4 +124,14 @@ sudo docker-compose up -d --no-build
 
 - `seccomp=unconfined` を付けると、コンテナのシステムコール制限がなくなる。社内向けの bot で、もともと Chromium を `--no-sandbox` で動かしているため許容する
 - ホストの OS（Debian 10）は EOL のまま。根本的には Cloud Run への移行（BACK-4947）か、VM の作り直しで解消する
-- Node.js のセキュリティリリースが今後出たときは、`docker-compose build --no-cache` で再ビルドすれば Dockerfile の `--only-upgrade nodejs` が最新パッチを入れる
+- Node.js のセキュリティリリースが今後出たときは、手元で `--no-cache` を付けて再ビルドし、手順5と同じように送れば、Dockerfile の `--only-upgrade nodejs` が最新パッチを入れる
+- ホスト上でビルドできないので、デプロイには手元の Docker（linux/amd64 のビルド）が必要になる
+
+## 反映記録
+
+2026-10-22 に、PR #5 のマージ前に、ブランチ `kikusui/back-8000` の内容でこの手順どおり反映した。
+
+- 空き容量は 2.4GB から 5.0GB に増えた（タグなしイメージと `playwright:v1.40.0-jammy` の削除で 2.6GB 回収）
+- ホスト上の `docker-compose build` は `apt-get update` で失敗したため、手元でビルドして送る方法に切り替えた
+- 反映後は `node -v` が v24.22.1、Playwright が 1.64.1、`SecurityOpt` が `[seccomp=unconfined]`、PID 1 が `init` になった。起動ログは `⚡️ Bolt app is running @ 3000!`
+- ホスト上のコンテナで `src/capture` による実キャプチャを試し、PNG が取れた。`/slack/events` は未署名のリクエストに 401 を返した

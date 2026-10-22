@@ -71,19 +71,27 @@ src/
 
 ### デプロイ手順
 
+**GCEホスト上では `docker-compose build` できない。** ビルド中の `RUN` も既定のseccompで動くため、noble イメージでは `apt-get` や `npm ci` が失敗する（「Playwright Dockerイメージの制約」を参照）。手元でlinux/amd64のイメージをビルドし、`docker save` / `docker load` でホストへ送る。
+
 ```bash
-# 1. ファイルをGCEにコピー
-gcloud compute scp /path/to/files redashbot:/tmp/ --project mikan-develop --zone asia-northeast1-b
+# 1. コミット済みの内容だけでamd64イメージをビルド（未追跡ファイルやローカルのnode_modulesを入れないため git archive を使う）
+git archive --format=tar HEAD | docker build --platform linux/amd64 -t redashbot:deploy -
 
-# 2. デプロイ先にコピー
-gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "sudo cp /tmp/files /home/redashbot/"
+# 2. ファイルをGCEにコピー（Dockerfile等をホスト側の手元と揃えておく）
+gcloud compute scp Dockerfile package.json package-lock.json AGENTS.md redashbot:/tmp/ --project mikan-develop --zone asia-northeast1-b
+gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "sudo cp /tmp/Dockerfile /tmp/package.json /tmp/package-lock.json /tmp/AGENTS.md /home/redashbot/"
 
-# 3. コンテナ再ビルド・起動
-gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "cd /home/redashbot && sudo docker-compose down && sudo docker-compose build --no-cache && sudo docker-compose up -d"
+# 3. イメージを送って読み込む（圧縮後で約1GB）
+docker save redashbot:deploy | gzip -1 | gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "gunzip | sudo docker load"
 
-# 4. ログ確認
-gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "sudo docker logs redashbot"
+# 4. 旧イメージを退避してから差し替え・起動
+gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "cd /home/redashbot && sudo docker tag redashbot_redashbot:latest redashbot_redashbot:prev && sudo docker tag redashbot:deploy redashbot_redashbot:latest && sudo docker-compose up -d --no-build"
+
+# 5. ログ確認
+gcloud compute ssh redashbot --project mikan-develop --zone asia-northeast1-b --command "sudo docker logs --tail 30 redashbot"
 ```
+
+戻すときは `sudo docker tag redashbot_redashbot:prev redashbot_redashbot:latest && sudo docker-compose up -d --no-build`。
 
 ### リポジトリ管理外のファイル
 
@@ -146,7 +154,7 @@ Assertion `(0) == (uv_thread_create(t.get(), start_thread, this))' failed.
 | `playwright:v1.40.0-jammy` | 2.35 | 落ちる | 起動する |
 | `node:24-slim` | 2.36 | 落ちる | 起動する |
 
-**対応**: `docker-compose.yml` に `security_opt: [seccomp=unconfined]` を入れる。ホストのDockerを20.10.10以上へ更新するか、Cloud Runへ移行すれば不要になる（BACK-4947）。
+**対応**: `docker-compose.yml` に `security_opt: [seccomp=unconfined]` を入れる。`docker build` の `RUN` にはこの設定が効かず、ホスト上のビルドでは `apt-get` も失敗するため、イメージは手元でビルドして送る（「デプロイ手順」を参照）。ホストのDockerを20.10.10以上へ更新するか、Cloud Runへ移行すれば不要になる（BACK-4947）。
 
 切り分けるときは、同じイメージを既定と `--security-opt seccomp=unconfined` の両方で起動して比べる:
 
@@ -166,7 +174,7 @@ npmパッケージのPlaywrightバージョンは、Dockerイメージに含ま�
 
 **重要**: `playwright:noble` のようなバージョンなしのタグは最新版に更新されるため使用禁止。必ずバージョン付きタグ（`v1.64.1-noble`等）を使用すること。
 
-イメージ内のNode.jsはイメージ作成時点のパッチ版で止まっている。Node.jsのセキュリティリリースが出たら、Dockerfileの `apt-get install --only-upgrade nodejs` が最新パッチへ上げるので、`docker-compose build --no-cache` で再ビルドすればよい。
+イメージ内のNode.jsはイメージ作成時点のパッチ版で止まっている。Node.jsのセキュリティリリースが出たら、Dockerfileの `apt-get install --only-upgrade nodejs` が最新パッチへ上げるので、手元で `--no-cache` を付けて再ビルドし、「デプロイ手順」でホストへ送ればよい。
 
 バージョン不整合時のエラー例:
 
